@@ -1,3 +1,7 @@
 training-dataset/
 
 output/
+
+model_store/
+
+logs/
