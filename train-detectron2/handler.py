@@ -25,6 +25,75 @@ from os import path
 from json import JSONEncoder
 from detectron2 import model_zoo
 
+classes = ['shirt',
+           'top',
+           'sweater',
+           'cardigan',
+           'jacket',
+           'vest',
+           'pants',
+           'shorts',
+           'skirt',
+           'coat',
+           'dress',
+           'jumpsuit',
+           'cape',
+           'glasses',
+           'hat',
+           'headaccessory',
+           'tie',
+           'glove',
+           'watch',
+           'belt',
+           'legwarmer',
+           'stockings',
+           'sock',
+           'shoe',
+           'bag',
+           'scarf',
+           'all'
+           ]
+
+valid_args = {
+    'category': classes,
+    'score': "score value for detectron ranging from 0 to 1",
+    'best_only': ['True', 'False'],
+    'mask': ['True', 'False'],
+    'color': ['True', 'False']
+}
+
+valid_args_conditions = {
+    'category': (lambda x: True if set(x.split(",")).issubset(set(classes)) else False),
+    'score': (lambda x: True if 0 <= eval(x) <= 1 else False),
+    'best_only': (lambda x: True if type(eval(x)) is bool else False),
+    'mask': (lambda x: True if type(eval(x)) is bool else False),
+    'color': (lambda x: True if type(eval(x)) is bool else False)
+}
+
+default_args = {
+    'category': 'all',
+    'score': '0.5',
+    'best_only': 'True',
+    'mask': 'False',
+    'color': 'False'
+}
+
+def validate_arguments(data):
+    valid_keys = valid_args_conditions.keys()
+    for k, v in data.items():
+        if k in ['image', 'url']:
+            pass
+        elif k in valid_keys:
+            try:
+                status = valid_args_conditions[k]
+            except:
+                status = False
+            if not status:
+                return {"error": {'Invalid argument passed.List of valid argument/value is': valid_args}}
+        else:
+            return {"error": {'Invalid argument passed.List of valid argument/value is': valid_args}}
+
+    return True
 
 class ModelHandler(object):
     """
@@ -92,6 +161,15 @@ class ModelHandler(object):
         images = []
 
         # batch = [{'body': {'instances': [{'categoryId': 'Womens Tshirt', 'image_url': 'http://....'}]}}]
+
+    #     {
+    #     'url': "https://storage.googleapis.com/vera-hit/test.jpg".encode(),
+    #     'score': '0.5'.encode(),
+    #     'category': 'pants'.encode(),
+    #     'best_only': 'True'.encode(),
+    #     'mask': 'True'.encode(),
+    #     'color': "True".encode()
+    # }
         # batch is a list of requests
         for request in batch:
             # each item in the list is a dictionary with a single body key, get the body of the request
