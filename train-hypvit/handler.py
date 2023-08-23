@@ -12,7 +12,7 @@
 
 # proxy anchor model specific imports
 import torch
-import utils
+from utils import make_transform
 from bn_inception import *
 from tqdm.auto import tqdm
 
@@ -69,24 +69,27 @@ def get_image(data):
     5. It also checks if the image is corrupted
     """
     input_image = data.get("image", None)
+
+    print("data---",data)
     if input_image == None:
-        input_image_url = data.get("url", None).decode('utf-8')
+        input_image_url = data.get("url", None)
+        print("image_url-------->",input_image_url)
         if input_image_url == None:
             return {"error": "Image / URL missing"}
+        
+        try:
+            response = requests.get(input_image_url, headers={
+                                    'User-Agent': 'My User Agent 1.0'})
+        except Exception as e:
+            print(e)
+            return {"error": "Unable to download image from URL"}
         else:
             try:
-                response = requests.get(input_image_url, headers={
-                                        'User-Agent': 'My User Agent 1.0'})
+                pil_image = Image.open(io.BytesIO(
+                    response.content)).convert('RGB')
             except Exception as e:
                 print(e)
-                return {"error": "Unable to download image from URL"}
-            else:
-                try:
-                    pil_image = Image.open(io.BytesIO(
-                        response.content)).convert('RGB')
-                except Exception as e:
-                    print(e)
-                    return {"error": "Inavalid image"}
+                return {"error": "Inavalid image"}
     else:
         try:
             # modifed[Ammu]
@@ -196,18 +199,19 @@ def parse_request(data):
     2. output --> after validation the final processed payload for proxy_anchor model 
     """
     payloads = []
-    for d in data:
+    for request in data:
+        request_body = request.get('body')
+
         payload = {}
-        payload = get_image(d)
+        
+        payload = get_image(request_body)
         if 'pil_image' in payload:
-            args = validate_arguments(d, payload)
+            args = validate_arguments(request_body, payload)
             if 'error' in args:
-                payload['image'] = d.image
                 payloads.append(args)
             else:
                 args = {**default_args, **args}
                 payload.update(args)
-                payload['image'] = d['image']
                 payloads.append(payload)
         else:
             payloads.append(payload)
@@ -225,7 +229,7 @@ class ProxyAnchor(object):
         self.model = None
         self.initialized = False
         self.device = False
-        self.transform = utils.make_transform(is_train=False, is_inception=1)
+        self.transform = make_transform(is_train=False, is_inception=1)
 
     def initialize(self, model_dir, gpu_id):
         # modifed[Ammu]
@@ -294,7 +298,7 @@ class ProxyAnchor(object):
                 output_payloads.append(payload)
             else:
                 output_payloads.append(
-                    {'instances': outputs.pop(0), 'image': payload['image']})
+                    {'instances': outputs.pop(0)})
         return output_payloads
 
     def postprocess(self, payloads):
@@ -306,7 +310,7 @@ class ProxyAnchor(object):
                 instances = payload['instances']
                 result = instances.detach().cpu().numpy().squeeze()
                 data = {"embedding": {"data": result.tolist(
-                ), "version": 5, 'image': payload['image']}}
+                ), "version": 5}}
                 final_data.append(data)
         return final_data
 
@@ -325,6 +329,8 @@ def handle(data, context):
         model_dir = properties.get("model_dir")
         _service.initialize(model_dir=model_dir, gpu_id=gpu_id)
 
+    print("data->",data)
+
     if data is None:
         return [{"error": "No input given."}]
     else:
@@ -335,61 +341,75 @@ def handle(data, context):
         return payloads
 
 
-if __name__ == "__main__":
-    """
-        1. Main function 
-        2. Assembles the entire code to get embedding for one image
-    """
-    gc.set_threshold(0)
-    if not _service.initialized:
-        # _service.initialize(
-        #     model_dir='/home/guest/Documents/piktor-vera-pipeline-torchserve-5d1b7e93cf9c/data/proxy_anchor', gpu_id=0)
-        _service.initialize(
-            model_dir='/home/user/Documents/Vera/piktor-vera-pipeline-torchserve-hypvitembedding/data/proxy_anchor/', gpu_id=0)
+# if __name__ == "__main__":
+#     """
+#         1. Main function 
+#         2. Assembles the entire code to get embedding for one image
+#     """
+#     gc.set_threshold(0)
+#     if not _service.initialized:
+#         # _service.initialize(
+#         #     model_dir='/home/guest/Documents/piktor-vera-pipeline-torchserve-5d1b7e93cf9c/data/proxy_anchor', gpu_id=0)
+#         _service.initialize(
+#             model_dir='/Users/apple/Desktop/Vera_project_files/torchserve-poc/train-hypvit/', gpu_id=0)
 
-    # data = [{
-    #     "url": "https://i.pinimg.com/736x/e5/15/ae/e515ae565b823c87b684b6904d9478a3.jpg".encode(),
-    #     'bbox': '[0.1731438191731771, 0.6382481384277344, 0.7134397379557291, 0.9916904703776042]'
-    # }]
-    # modifed[Ammu]
-    file_path = "proxy_anchor_input_data.json"
-    with open(file_path, "r") as json_file:
-        data = json.load(json_file)
-    # data = [{
-    #     "image": '/Users/apple/Documents/Vera/vera-Dataset-for-Training/Curtain/0a1e229710d82db4.jpg',
-    #     "url": "https://i.pinimg.com/736x/e5/15/ae/e515ae565b823c87b684b6904d9478a3.jpg".encode(),
-    #     'bbox': '[0.1731438191731771, 0.6382481384277344, 0.7134397379557291, 0.9916904703776042]'
-    # }]
-    # test payload
-    # data = [{
-    #     'image' : '/media/pintu/BACKUP/Trinanjan/current_project/virtual_try_on/Graphonomy/img/messi.jpg',
-    #     'bbox':'[.1,.2,.7,.8]'
-    # }]
-    # data=[{
-    # 'url':"https://www.thetrendspotter.net/wp-content/uploads/2019/09/London-Fashion-Week-SS-2020-Street-Style-34.jpg".encode(),
-    # 'bbox':[.1,.2,.7,.8]
-    #     }]
+#     # data = [{
+#     #     "url": "https://i.pinimg.com/736x/e5/15/ae/e515ae565b823c87b684b6904d9478a3.jpg".encode(),
+#     #     'bbox': '[0.1731438191731771, 0.6382481384277344, 0.7134397379557291, 0.9916904703776042]'
+#     # }]
+#     # modifed[Ammu]
+#     file_path = "proxy_anchor_input_data.json"
+#     with open(file_path, "r") as json_file:
+#         data = json.load(json_file)
+#     # data = [{
+#     #     "image": '/Users/apple/Documents/Vera/vera-Dataset-for-Training/Curtain/0a1e229710d82db4.jpg',
+#     #     "url": "https://i.pinimg.com/736x/e5/15/ae/e515ae565b823c87b684b6904d9478a3.jpg".encode(),
+#     #     'bbox': '[0.1731438191731771, 0.6382481384277344, 0.7134397379557291, 0.9916904703776042]'
+#     # }]
+#     # test payload
+#     # data = [{
+#     #     'image' : '/media/pintu/BACKUP/Trinanjan/current_project/virtual_try_on/Graphonomy/img/messi.jpg',
+#     #     'bbox':'[.1,.2,.7,.8]'
+#     # }]
+#     # data=[{
+#     # 'url':"https://www.thetrendspotter.net/wp-content/uploads/2019/09/London-Fashion-Week-SS-2020-Street-Style-34.jpg".encode(),
+#     # 'bbox':[.1,.2,.7,.8]
+#     #     }]
 
-    start_time = time.time()
-    data = data[:500]
-    batch_size = 500
-    final_emb_results = []
-    # modifed[Ammu]
-    for i in tqdm(range(0, len(data), batch_size)):
-    # find end of batch
-        i_end = min(i+batch_size, len(data))
-        data_batch = data[i:i_end]
-        payload = parse_request(data_batch)
-        payload_processed = _service.preprocess(payload)
-        emb = _service.inference(payload_processed)
-        emb = _service.postprocess(emb)
-        final_emb_results = final_emb_results + emb
-    end_time = time.time()
-    print('Duration: ', end_time-start_time)
-    # This print is for testing purpose
-    print(emb)
-    # modifed[Ammu]
-    file_path = "embedding_data_output.json"
-    # Writing data to the JSON file
-    with open(file_path, "w") as json_file:
-        json.dump(final_emb_results, json_file, indent=4)
+#     start_time = time.time()
+#     data = data[:500]
+#     batch_size = 500
+#     final_emb_results = []
+#     # modifed[Ammu]
+#     for i in tqdm(range(0, len(data), batch_size)):
+#     # find end of batch
+#         i_end = min(i+batch_size, len(data))
+#         data_batch = data[i:i_end]
+#         payload = parse_request(data_batch)
+#         payload_processed = _service.preprocess(payload)
+#         emb = _service.inference(payload_processed)
+#         emb = _service.postprocess(emb)
+#         final_emb_results = final_emb_results + emb
+#     end_time = time.time()
+#     print('Duration: ', end_time-start_time)
+#     # This print is for testing purpose
+#     print(emb)
+#     # modifed[Ammu]
+#     file_path = "embedding_data_output.json"
+#     # Writing data to the JSON file
+#     with open(file_path, "w") as json_file:
+#         json.dump(final_emb_results, json_file, indent=4)
+
+# if __name__ == "__main__":
+#     data = [{
+#         "url": "https://xcdn.next.co.uk/common/items/default/default/publications/g22/shotzoom/56/d83-513s.jpg?im=Resize,width=364".encode(),
+#         'bbox': '[0.18610319200452868, 0.7318033630594666, 0.7131961361392514, 0.9981475941864125]'
+#     }]
+
+#     if not _service.initialized:
+#         _service.initialize(
+#             model_dir='/Users/apple/Desktop/Vera_project_files/torchserve-poc/train-hypvit/', gpu_id=0)
+    
+#     output= handle(data,context={})
+
+#     print(output)
