@@ -12,6 +12,8 @@ import numpy as np
 import cv2
 import base64
 
+import requests
+
 # Setup detectron2 logger
 from detectron2.utils.logger import setup_logger
 setup_logger()
@@ -35,6 +37,7 @@ class ModelHandler(object):
         self._batch_size = 0
         self.initialized = False
         self.predictor = None
+        # self.model_file = "/home/desktop/Documents/torchserve-poc/train-detectron2/output/output_1/model_final.pth"
         self.model_file = "model_final.pth"
         self.config_file = "COCO-Detection/retinanet_R_101_FPN_3x.yaml"  
 
@@ -69,6 +72,7 @@ class ModelHandler(object):
             print("Error: {}".format(e))
 
         self._context = context
+        # self._batch_size = 1
         self._batch_size = context.system_properties["batch_size"]
         self.initialized = True
         print("initialized")
@@ -87,29 +91,27 @@ class ModelHandler(object):
 
         images = []
 
-        # print("batch ===>", batch)
-
+        # batch = [{'body': {'instances': [{'categoryId': 'Womens Tshirt', 'image_url': 'http://....'}]}}]
         # batch is a list of requests
         for request in batch:
-            # print("request ===>", request)
-            # for request_item in request:
-                # print("request_item ===>",request_item)
-                
             # each item in the list is a dictionary with a single body key, get the body of the request
-            request_body = request.get("image_url")
+            request_body = request.get("body")
+            request_instances = request_body.get("instances")
 
-            # print("request_body ===> ", request_body)
+            for image_instance in request_instances:
+                image_url = image_instance.get("image_url")
+                categoryId = image_instance.get("categoryId")
+                
+                response = requests.get(image_url)
+                response.raise_for_status()
 
-            # read the bytes of the image
-            input = io.BytesIO(request_body)
+                image_bytes = response.content
 
-            # print("input ===> ", input)
+                input = io.BytesIO(image_bytes)
+                img = cv2.imdecode(np.fromstring(input.read(), np.uint8), 1)
+                # add the image to our list
+                images.append(img)
 
-            # get our image
-            img = cv2.imdecode(np.fromstring(input.read(), np.uint8), 1)
-
-            # add the image to our list
-            images.append(img)
 
         print("pre-processing finished for a batch of {}".format(len(batch)))
 
@@ -172,7 +174,7 @@ class ModelHandler(object):
 			
             # print(responses_json)
 
-            responses.append(json.dumps(responses_json))
+            responses.append(responses_json)
 
         elapsed_time = time.time() - start_time
             
@@ -186,12 +188,17 @@ class ModelHandler(object):
         :param data: input data
         :param context: mms context
         """
-        # print("handling started")
-
+        print("handling started")
+        print(data, "=====> data")
+        # print(context.system_properties, " ====> context")
+        # context.system_properties = {'model_dir': '/home/model-server/tmp/models/9d58942b2174498eae4e1f7e7a1e56fb', 'gpu_id': None, 'batch_size': 1, 'server_name': 'MMS', 'server_version': '0.8.1', 'limit_max_image_pixels': True}
+        
+        
         # print("handle data ----> ")
         # print("handle data ----> ", data) asia-south1-docker.pkg.dev/vera-dev-392610/detectron-containers
         # process the data through our inference pipeline
         model_input = self.preprocess(data)
+        
 
         # print("model_input ----> ")
         # print("model_input ----> ", model_input)
@@ -202,7 +209,7 @@ class ModelHandler(object):
         output = self.postprocess(model_out)
 
         # print("handling finished")
-        # print("handling finished", output)
+        print("handling finished", output)
 
         return output  
 
@@ -216,6 +223,46 @@ def handle(data, context):
     if data is None:
         return None
     
+    output = _service.handle(data, context)
 
-    # print("data ----> ", data)
-    return _service.handle(data, context)
+    return [{
+        "predictions": output
+    }]
+
+
+##### THIS IS FOR RUNNING LOCALLY
+# if __name__ == "__main__":
+
+#     context = {
+#         "system_properties": {
+#             "batch_size": 1
+#         }
+#     }
+
+#     if not _service.initialized:
+#         _service.initialize(context)
+
+#     data = [
+#                 {
+#                     "body": {
+#                     "instances": [
+                        # {
+                        # "categoryId": "Womens Tshirt",
+                        # "image_url": "https://hips.hearstapps.com/hmg-prod/images/edc110122grenney-003-1666121032.jpg"
+                        # },
+                        # {
+                        # "categoryId": "Womens Tshirt",
+                        # "image_url": "https://hips.hearstapps.com/hmg-prod/images/edc110122grenney-003-1666121032.jpg"
+                        # },
+                        # {
+                        # "categoryId": "Womens Tshirt",
+                        # "image_url": "https://hips.hearstapps.com/hmg-prod/images/edc110122grenney-003-1666121032.jpg"
+                        # }
+#                     ]
+#                     }
+#                 }
+#             ]
+    
+#     output = _service.handle(data, context)
+#     print(json.dumps({"predictions": output}))
+#     return json.dumps({"predictions": output})
