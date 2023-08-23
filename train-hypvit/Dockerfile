@@ -1,5 +1,5 @@
-FROM pytorch/torchserve:0.8.1-cpu
-# FROM pytorch/torchserve:latest-cpu
+# FROM pytorch/torchserve:0.8.1-cpu
+FROM pytorch/torchserve:latest-cpu
 
 ENV PYTHONUNBUFFERED True
 
@@ -34,11 +34,11 @@ EXPOSE 8081
 RUN torch-model-archiver -f \
   --model-name=hypvit \
   --version=1.0 \
-  --serialized-file=bn_inception-52deb4733.pth \
-  --handler=handler.py \
-  --extra-files=utils.py,bn_inception.py \
-  --export-path=model-store \
-  --config-file=hypvit-config.yaml
+  --serialized-file=/home/model-server/bn_inception-52deb4733.pth \
+  --handler=/home/model-server/handler.py \
+  --extra-files  "/home/model-server/utils.py,/home/model-server/bn_inception.py" \
+  --export-path=/home/model-server/model-store \
+  --config-file=/home/model-server/hypvit-config.yaml
 
 # Start TorchServe to serve prediction requests
-CMD ["torchserve", "--start", "--models", "hypvit=hypvit.mar", "--model-store", "model-store"]
+CMD ["torchserve", "--start", "--models", "hypvit=hypvit.mar", "--model-store", "/home/model-server/model-store"]

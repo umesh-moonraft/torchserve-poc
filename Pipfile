@@ -20,5 +20,5 @@ detectron2 = {git = "https://github.com/facebookresearch/detectron2.git"}
 [dev-packages]
 
 [requires]
-python_version = "3.11"
-python_full_version = "3.11.3"
+python_version = "3.10"
+python_full_version = "3.10.12"

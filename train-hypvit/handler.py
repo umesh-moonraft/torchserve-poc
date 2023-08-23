@@ -401,14 +401,16 @@ def handle(data, context):
 #         json.dump(final_emb_results, json_file, indent=4)
 
 # if __name__ == "__main__":
-#     data = [{
+#     data = [
+#         {"body":{
 #         "url": "https://xcdn.next.co.uk/common/items/default/default/publications/g22/shotzoom/56/d83-513s.jpg?im=Resize,width=364".encode(),
 #         'bbox': '[0.18610319200452868, 0.7318033630594666, 0.7131961361392514, 0.9981475941864125]'
-#     }]
+#     }}
+#     ]
 
 #     if not _service.initialized:
 #         _service.initialize(
-#             model_dir='/Users/apple/Desktop/Vera_project_files/torchserve-poc/train-hypvit/', gpu_id=0)
+#             model_dir='/home/desktop/Documents/torchserve-poc/train-hypvit', gpu_id=0)
     
 #     output= handle(data,context={})
 
