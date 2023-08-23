@@ -25,75 +25,11 @@ from os import path
 from json import JSONEncoder
 from detectron2 import model_zoo
 
-classes = ['shirt',
-           'top',
-           'sweater',
-           'cardigan',
-           'jacket',
-           'vest',
-           'pants',
-           'shorts',
-           'skirt',
-           'coat',
-           'dress',
-           'jumpsuit',
-           'cape',
-           'glasses',
-           'hat',
-           'headaccessory',
-           'tie',
-           'glove',
-           'watch',
-           'belt',
-           'legwarmer',
-           'stockings',
-           'sock',
-           'shoe',
-           'bag',
-           'scarf',
-           'all'
-           ]
-
-valid_args = {
-    'category': classes,
-    'score': "score value for detectron ranging from 0 to 1",
-    'best_only': ['True', 'False'],
-    'mask': ['True', 'False'],
-    'color': ['True', 'False']
-}
-
-valid_args_conditions = {
-    'category': (lambda x: True if set(x.split(",")).issubset(set(classes)) else False),
-    'score': (lambda x: True if 0 <= eval(x) <= 1 else False),
-    'best_only': (lambda x: True if type(eval(x)) is bool else False),
-    'mask': (lambda x: True if type(eval(x)) is bool else False),
-    'color': (lambda x: True if type(eval(x)) is bool else False)
-}
-
-default_args = {
-    'category': 'all',
-    'score': '0.5',
-    'best_only': 'True',
-    'mask': 'False',
-    'color': 'False'
-}
-
-def validate_arguments(data):
-    valid_keys = valid_args_conditions.keys()
-    for k, v in data.items():
-        if k in ['image', 'url']:
-            pass
-        elif k in valid_keys:
-            try:
-                status = valid_args_conditions[k]
-            except:
-                status = False
-            if not status:
-                return {"error": {'Invalid argument passed.List of valid argument/value is': valid_args}}
-        else:
-            return {"error": {'Invalid argument passed.List of valid argument/value is': valid_args}}
-
-    return True
+def get_classes():
+    with open('index_to_name.json', 'r') as json_file:
+        classes = json.load(json_file)
+    print(classes)
+    return classes
 
 class ModelHandler(object):
     """
@@ -106,9 +42,10 @@ class ModelHandler(object):
         self._batch_size = 0
         self.initialized = False
         self.predictor = None
-        # self.model_file = "/home/desktop/Documents/torchserve-poc/train-detectron2/output/output_1/model_final.pth"
+        # self.model_file = "/home/desktop/Documents/torchserve-poc/train-detectron2/output/output_2/model_final.pth"
         self.model_file = "model_final.pth"
         self.config_file = "COCO-Detection/retinanet_R_101_FPN_3x.yaml"  
+        self.classes = None
 
     def initialize(self, context):
         """
@@ -122,6 +59,9 @@ class ModelHandler(object):
         print("File {} exists {}".format(self.config_file, str(path.exists(self.config_file))))
 
         try:
+            # initialize classes
+            self.classes = get_classes()
+
             cfg = get_cfg()
             cfg.merge_from_file(model_zoo.get_config_file(self.config_file))
             cfg.MODEL.WEIGHTS = self.model_file
@@ -158,18 +98,11 @@ class ModelHandler(object):
         print("pre-processing started for a batch of {}".format(len(batch)))
         print("_batch_size == ",self._batch_size)
 
-        images = []
+        # images = []
 
-        # batch = [{'body': {'instances': [{'categoryId': 'Womens Tshirt', 'image_url': 'http://....'}]}}]
+        payloads = []
 
-    #     {
-    #     'url': "https://storage.googleapis.com/vera-hit/test.jpg".encode(),
-    #     'score': '0.5'.encode(),
-    #     'category': 'pants'.encode(),
-    #     'best_only': 'True'.encode(),
-    #     'mask': 'True'.encode(),
-    #     'color': "True".encode()
-    # }
+        # batch = [{'body': {'instances': [{'category': 'Womens Tshirt', 'image_url': 'http://....'}]}}]
         # batch is a list of requests
         for request in batch:
             # each item in the list is a dictionary with a single body key, get the body of the request
@@ -178,7 +111,25 @@ class ModelHandler(object):
 
             for image_instance in request_instances:
                 image_url = image_instance.get("image_url")
-                categoryId = image_instance.get("categoryId")
+                category = image_instance.get("category")
+                score = image_instance.get("score")
+
+                print("category--->",category)
+
+                if category == 'all':
+                    categories = self.classes.values()
+                else:
+                    categories = category.split(',')
+
+                is_categories_exist = all(value in self.classes.values() for value in categories)
+
+                classes_string = ', '.join(str(value) for value in self.classes.values())
+
+                if not is_categories_exist:
+                    result = { "image_url":image_url,"error": f"Category not exist, use these classes ${classes_string}" }
+                    payloads.append(result)
+                    continue
+
                 
                 response = requests.get(image_url)
                 response.raise_for_status()
@@ -188,12 +139,16 @@ class ModelHandler(object):
                 input = io.BytesIO(image_bytes)
                 img = cv2.imdecode(np.fromstring(input.read(), np.uint8), 1)
                 # add the image to our list
-                images.append(img)
+                # images.append(img)
+
+                result = {"image":img,"category":categories}
+
+                payloads.append(result)
 
 
         print("pre-processing finished for a batch of {}".format(len(batch)))
 
-        return images
+        return payloads
 
     def inference(self, model_input):
         """
@@ -205,17 +160,25 @@ class ModelHandler(object):
         # Do some inference call to engine here and return output
         print("inference started for a batch of {}".format(len(model_input)))
 
-        outputs = []
+        output_payloads = []
 
-        for image in model_input:
+        for payload in model_input:
+            
+            # generate bbox for image
+            if "error" not in payload:
+                image = payload['image']
+                output = self.predictor(image)
+                del payload['image']
+                payload["output"] = output
+
+
             # run our predictions
-            output = self.predictor(image)
 
-            outputs.append(output)
+            output_payloads.append(payload)
 
         print("inference finished for a batch of {}".format(len(model_input)))
 
-        return outputs
+        return output_payloads
 
     def postprocess(self, inference_output):
 
@@ -230,7 +193,14 @@ class ModelHandler(object):
         
         responses = []
 
-        for output in inference_output:
+        for output_payload in inference_output:
+
+            if "error" in output_payload:
+                responses.append(output_payload)
+                continue
+            
+            output = output_payload['output']
+            categories = output_payload['category']
 
             # process predictions
             predictions = output["instances"].to("cpu")
@@ -248,11 +218,49 @@ class ModelHandler(object):
             if masks is not None:
                 masks = masks.tolist()
 
-            responses_json={'classes': classes, 'scores': scores, "boxes": boxes, "masks": masks }
-			
-            # print(responses_json)
+            # responses_json={'classes': classes, 'scores': scores, "boxes": boxes, "masks": masks }
 
-            responses.append(responses_json)
+            # Extract relevant information from the first box
+            matching_index = None
+            matching_category = None
+            
+            # get first matching class which is present in input categories
+            for index,class_index in enumerate(classes):
+                class_name = self.classes.get(str(class_index),None)
+
+                # print(class_index,class_name,index)
+                if class_name is None:
+                    continue
+                
+                if class_name in categories:
+                    matching_index = index
+                    matching_category = class_name
+                    break
+
+            # if input category is not there return error
+            if (matching_index is None) or (matching_category is None):
+                output = {"error":"No matching index"}
+                responses.append(output)
+                continue
+            
+
+            # get bbox,score,and class_id
+            first_box = boxes[matching_index]
+            score = scores[matching_index]
+            class_id = classes[matching_index]
+
+            # Create the desired output dictionary
+            output = {
+                "box": first_box,
+                "score": score,
+                "class_id": class_id,
+                "category": matching_category
+            }
+
+            # Print the desired output
+            # print(output)
+
+            responses.append(output)
 
         elapsed_time = time.time() - start_time
             
@@ -286,6 +294,8 @@ class ModelHandler(object):
         # print("output data ----> ", model_out)
         output = self.postprocess(model_out)
 
+        # output = []
+
         # print("handling finished")
         print("handling finished", output)
 
@@ -304,11 +314,11 @@ def handle(data, context):
     output = _service.handle(data, context)
 
     return [{
-        "predictions": output
+        "predictions": output,
     }]
 
 
-##### THIS IS FOR RUNNING LOCALLY
+# #### THIS IS FOR RUNNING LOCALLY
 # if __name__ == "__main__":
 
 #     context = {
@@ -320,27 +330,36 @@ def handle(data, context):
 #     if not _service.initialized:
 #         _service.initialize(context)
 
-#     data = [
-#                 {
-#                     "body": {
-#                     "instances": [
-                        # {
-                        # "categoryId": "Womens Tshirt",
-                        # "image_url": "https://hips.hearstapps.com/hmg-prod/images/edc110122grenney-003-1666121032.jpg"
-                        # },
-                        # {
-                        # "categoryId": "Womens Tshirt",
-                        # "image_url": "https://hips.hearstapps.com/hmg-prod/images/edc110122grenney-003-1666121032.jpg"
-                        # },
-                        # {
-                        # "categoryId": "Womens Tshirt",
-                        # "image_url": "https://hips.hearstapps.com/hmg-prod/images/edc110122grenney-003-1666121032.jpg"
-                        # }
-#                     ]
-#                     }
-#                 }
-#             ]
+#     # {
+#     #     'image_url': "https://storage.googleapis.com/vera-hit/test.jpg".encode(),
+#     #     'score': '0.5'.encode(),
+#     #     'category': 'pants'.encode(),
+#     #     'best_only': 'True'.encode(),
+#     #     'mask': 'True'.encode(),
+#     #     'color': "True".encode()
+#     # }
+
+    
+#     data = {
+                
+#                 "instances": [
+#                     {
+#                         "best_only":"True",
+#                         "mask":"True",
+#                         "color":"True",
+#                         "category": "Pants",
+#                         "score": "0.5",
+#                         "image_url": "https://storage.googleapis.com/vera-hit/test.jpg"
+#                     },
+#                 ]
+                
+#             }
+            
+
+#     print(data)
+
+#     data = [{"body":data}]
     
 #     output = _service.handle(data, context)
-#     print(json.dumps({"predictions": output}))
-#     return json.dumps({"predictions": output})
+#     print("output------>",output)
+#     # return json.dumps({"predictions": output})
