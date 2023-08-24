@@ -3,19 +3,30 @@ import random
 
 import matplotlib.pyplot as plt
 import cv2
+import requests
+import io
+import numpy as np
 
 
 
+
+response = requests.get("https://m.media-amazon.com/images/I/81ZQXAE1OVL._AC_UL400_.jpg")
+response.raise_for_status()
+
+image_bytes = response.content
+
+input = io.BytesIO(image_bytes)
+img = cv2.imdecode(np.fromstring(input.read(), np.uint8), 1)
 fig = plt.figure()
-img = cv2.imread("/home/desktop/Documents/torchserve-poc/train-detectron2/chair.jpg")
+# img = cv2.imread("/home/desktop/Downloads/test.jpg")
 
 h_img, w_img, _ = img.shape
 lines = [
         [
-            223.45111083984375,
-            67.86144256591797,
-            797.518798828125,
-            943.943603515625
+        94.83322143554688,
+        17.79736328125,
+        193.27203369140625,
+        376.315185546875
         ],
         # [
             

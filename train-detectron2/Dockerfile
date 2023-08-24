@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED True
 # copy model artifacts, custom handler and other dependencies
 COPY ./handler.py /home/model-server/
 COPY ./index_to_name.json /home/model-server/
-COPY ./output/output_1/model_final.pth /home/model-server/
+COPY ./output/output_2/model_final.pth /home/model-server/
 COPY ./detectron-config.yaml /home/model-server/
 # COPY ./config.properties /home/model-server/
 # COPY ./model/$APP_NAME/ /home/model-server/

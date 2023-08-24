@@ -1,0 +1,1 @@
+torch-model-archiver --model-name hypvit --version 1.0 --serialized-file bn_inception-52deb4733.pth --handler handler.py --export-path model-store/ --config-file hypvit-config.yaml --force --extra-files bn_inception.py,utils.py
