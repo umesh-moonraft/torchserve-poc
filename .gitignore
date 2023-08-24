@@ -3,6 +3,8 @@
 */output/
 
 */model_store/
+*/model-store/
+
 
 # JetBrains IDE
 .idea/

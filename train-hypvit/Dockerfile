@@ -8,7 +8,7 @@ WORKDIR /home/model-server/
 # copy model artifacts, custom handler and other dependencies
 
 COPY ./handler.py .
-COPY ./utils.py ./bn_inception.py ./bn_inception-52deb4733.pth ./hypvit-config.yaml ./
+COPY ./utils.py ./bn_inception.py ./output/bn_inception-52deb4733.pth ./hypvit-config.yaml ./
 
 # Switch to root user to make configuration changes
 USER root

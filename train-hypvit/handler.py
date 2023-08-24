@@ -1,417 +1,349 @@
-
-######################################
-# Author [Gaurav Singh , Trinanjan Saha]
-# 24/08/2020
-# This code is used for serving proxy anchor model
-# TODO include batching
-######################################
-
-######################################
-# Imports
-######################################
-
-# proxy anchor model specific imports
 import torch
-from utils import make_transform
-from bn_inception import *
-from tqdm.auto import tqdm
-
-# other imports
-import logging
-import json
-import io
-import logging
-import numpy as np
-import os
-from PIL import Image
 import requests
-import base64
-import time
-import json
-import gc
+import utils
+import sys, io ,time
+from os import path
+from PIL import Image
 
 
-
-######################################
-# SETTINGS
-######################################
-
-# Initialize logger and Arguments
-logger = logging.getLogger(__name__)
-
-# Valid arguments and their condition
-valid_args = {
-    'bbox': 'bbox should be list of normalized/absolute values with the format [x1,y1,x2,y2], example [.1,.2,.7,.8]/[10,20,100,120]'
-}
-
-valid_args_conditions = {
-    'bbox': (lambda x: True if type(eval(x)) is list else False)
-}
+from bn_inception import *
 
 
-# no default args. user has the option to pass either url/image_path and bbox or only the url/image_path
-default_args = {}
+def get_image(image_url):
+    try:
+        response = requests.get(image_url)
+        response.raise_for_status()
 
-######################################
-# HELPER FUNCTIONS
-######################################
+        image_bytes = response.content
 
+        input = io.BytesIO(image_bytes)
+        pil_image = Image.open(input).convert("RGB")
 
-def get_image(data):
-    """
-    1. input argument data=[{
-    'url':"https://www.thetrendspotter.net/wp-content/uploads/2019/09/London-Fashion-Week-SS-2020-Street-Style-34.jpg".encode(),
-    'bbox':[.1,.2,.7,.8]
-        }]
-    2. output PILimage/corrupted image flag
-    3. get_image function takes the payload checks wheather the image url is given or the image path is given
-    4. Accordingly it lodes the image and returns the image
-    5. It also checks if the image is corrupted
-    """
-    input_image = data.get("image", None)
+        # img = cv2.imdecode(np.fromstring(input.read(), np.uint8), 1)
 
-    print("data---",data)
-    if input_image == None:
-        input_image_url = data.get("url", None)
-        print("image_url-------->",input_image_url)
-        if input_image_url == None:
-            return {"error": "Image / URL missing"}
-        
-        try:
-            response = requests.get(input_image_url, headers={
-                                    'User-Agent': 'My User Agent 1.0'})
-        except Exception as e:
-            print(e)
-            return {"error": "Unable to download image from URL"}
-        else:
-            try:
-                pil_image = Image.open(io.BytesIO(
-                    response.content)).convert('RGB')
-            except Exception as e:
-                print(e)
-                return {"error": "Inavalid image"}
-    else:
-        try:
-            # modifed[Ammu]
-            image = Image.open(input_image)
-            pil_image = image.convert('RGB')
-            # pil_image = Image.open(io.BytesIO(input_image)).convert('RGB')
-        except Exception as e:
-            print(e)
-            return {"error": "Inavalid image"}
-    return {'pil_image': pil_image}
+        return {"image": pil_image}
+    except Exception as e:
+        print(e)
+        return {"error": "Inavalid image"}
 
 
-def validate_arguments(data, payload):
-    """
-    1. input argument 
+def validate_arguments(data):
+    print("validate_arguments data-->", data)
+    bbox = data.get("bbox", None)
+    image_url = data.get("image_url", None)
 
-    data=[{'url':"https://www.thetrendspotter.net/wp-content/uploads/2019/09/London-Fashion-Week-SS-2020-Street-Style-34.jpg".encode(),
-    'bbox':[.1,.2,.7,.8]}]
-    payload {'pil_image': <PIL.Image.Image image mode=RGB size=600x900 at 0x7FBA159EDE20>
+    if bbox is None or image_url is None:
+        return {"error": "Inavalid arguments pass bbox and image_url"}
 
-    2. output validated arguments, in this case bbox sanity check
+    # download image
+    image_res = get_image(image_url)
 
-    3. Error checking for case
+    if "error" in image_res:
+        return {**data, **image_res}
 
-        a. checks if the bbox is list
-        b. checks if the bbox length is exactly 4
-        c. checks if the bbox values are normalized, if normalized convert them to absolute
-        d. checks if the bbox values are in logical range
+    image = image_res["image"]
 
-        TODO 
-        e. use the bbox_sanity_check flag to return differnet error messages,currently only invalid args error statement is being returned
-           It will be better to notify the user that bbox range is logically wrong. For example if the last y2  value is more than the image 
-           height etc. 
-    """
-    input_args = {}
-    valid_keys = valid_args_conditions.keys()
+    bbox_res = validate_bbox(bbox, image)
 
-    for k, v in data.items():
-        if k in ['image', 'url']:
-            pass
-        elif k in valid_keys:
-
-            try:
-                # (lambda x: True if type(eval(x)) is list else False)
-                status = valid_args_conditions[k](v)
-
-                # check if the image bbox values are normalized
-                bbox = eval(v)
-                # length bbox check
-                bbox_sanity_check = True if len(bbox) == 4 else False
-
-                if bbox_sanity_check:
-                    # normalized check
-                    for cordinate in bbox:
-                        if cordinate > 1:
-                            normalized = False
-                        else:
-                            normalized = True
-
-                    img_width, img_height = payload['pil_image'].size
-
-                    # If normalized then remove normalization
-                    if normalized:
-                        # check the bbox range
-                        if (bbox[0] < 0 or bbox[1] < 0 or bbox[2] > 1 or bbox[3] > 1):
-                            bbox_sanity_check = False
-                        else:
-                            bbox_processed = [
-                                bbox[0]*img_width, bbox[1]*img_height, bbox[2]*img_width, bbox[3]*img_height]
-                    # else use the same bbox values
-                    else:
-                        # check the bbox range
-                        if bbox[0] < 0 or bbox[1] < 0 or bbox[2] > img_width or bbox[3] > img_height:
-                            bbox_sanity_check = False
-                        else:
-                            bbox_processed = bbox
-
-                    # cropped image
-                    cropped_image = payload['pil_image'].crop((bbox_processed))
-                    # check if the cropped image is valid or not
-                    # this also ensures if the crop is logically wrong or outside the image
-                    if cropped_image.tobytes():
-                        bbox_sanity_check = True
-
-            except:
-                status = False
-                bbox_sanity_check = False  # TODO use this flag to return logical bbox value error
-            if status and bbox_sanity_check:
-                input_args[k] = v
-                # The following new key_values are added to the payload
-                # This crop pil image is directly being used inside the ProxyAnchor class preprocess function
-                input_args['pil_image_cropped'] = cropped_image
-                input_args['pil_image_cropped_bbox'] = bbox_processed
-            else:
-                return {"error": {'Invalid argument passed.List of valid argument/value is': valid_args}}
-        else:
-            return {"error": {'Invalid argument passed.List of valid argument/value is': valid_args}}
-    return input_args
+    return bbox_res
 
 
-def parse_request(data):
-    """
-    1. input argument data=[{
-    'url':"https://www.thetrendspotter.net/wp-content/uploads/2019/09/London-Fashion-Week-SS-2020-Street-Style-34.jpg".encode(),
-    'bbox':[.1,.2,.7,.8]
-        }]
-    2. output --> after validation the final processed payload for proxy_anchor model 
-    """
+def parse_request(request):
+    # each item in the list is a dictionary with a single body key, get the body of the request
+    request_body = request.get("body")
+    request_instances = request_body.get("instances")
+
     payloads = []
-    for request in data:
-        request_body = request.get('body')
 
-        payload = {}
-        
-        payload = get_image(request_body)
-        if 'pil_image' in payload:
-            args = validate_arguments(request_body, payload)
-            if 'error' in args:
-                payloads.append(args)
-            else:
-                args = {**default_args, **args}
-                payload.update(args)
-                payloads.append(payload)
-        else:
-            payloads.append(payload)
+    for image_instance in request_instances:
+        payload = validate_arguments(image_instance)
+
+        payloads.append(payload)
+
     return payloads
 
 
-class ProxyAnchor(object):
+def validate_bbox(bbox, image):
+    # check if the image bbox values are normalized
+    bbox = eval(bbox)
+    # length bbox check
+    bbox_sanity_check = True if len(bbox) == 4 else False
+
+    print(image, image.size)
+
+    img_width, img_height = image.size
+
+    print(img_width, img_height)
+
+    payload = {}
+
+    if bbox_sanity_check:
+        # detectron2 bbox are not normalized
+        if bbox[0] < 0 or bbox[1] < 0 or bbox[2] > img_width or bbox[3] > img_height:
+            bbox_sanity_check = False
+        else:
+            bbox_processed = bbox
+
+        try:
+            # cropped image
+            cropped_image = image.crop((bbox_processed))
+            # check if the cropped image is valid or not
+            # this also ensures if the crop is logically wrong or outside the image
+            if cropped_image.tobytes():
+                bbox_sanity_check = True
+
+        except Exception as e:
+            print("error in bbox validation", e)
+            bbox_sanity_check = False
+
+    if bbox_sanity_check:
+        payload = {"image_cropped": cropped_image, "bbox": bbox}
+    else:
+        payload = {
+            "error": "bbox should be list of absolute values with the format [x1,y1,x2,y2]"
+        }
+
+    return payload
+
+
+class ModelHandler(object):
 
     """
-        # TODO add comments for this section
-        # preprocess function checks for bbox key present or not
+    A base Model handler implementation.
     """
 
     def __init__(self):
-        self.model = None
+        self.error = None
+        self._context = None
+        self._batch_size = 0
+        self._gpu_id = 0
         self.initialized = False
+        self.model = None
+        self.model_file = "bn_inception-52deb4733.pth"
+        # self.model_file = "/Users/apple/Desktop/Vera_project_files/torchserve-poc/train-hypvit/output/bn_inception-52deb4733.pth"
+
         self.device = False
-        self.transform = make_transform(is_train=False, is_inception=1)
+        self.transform = utils.make_transform(is_train=False, is_inception=1)
+        self.config_file = None
 
-    def initialize(self, model_dir, gpu_id):
-        # modifed[Ammu]
-        # self.device = torch.device(
-        #     "cuda:" + str(gpu_id) if torch.cuda.is_available() else "cpu")
-        self.device = "cpu"
-        # modifed[Ammu]
-        # model_pt_path = os.path.join(model_dir, "Inshop_bn_inception_best.pth")
-        model_pt_path = os.path.join(model_dir, "bn_inception-52deb4733.pth")
-        self.model = bn_inception(
-            embedding_size=512, pretrained=True, is_norm=1, bn_freeze=1)
+    def initialize(self, context):
+        """
+        Initialize model. This will be called during model loading time
+        :param context: Initial context contains model server system properties.
+        :return:
+        """
+        print("initializing starting")
 
-        # checkpoint = torch.load(model_pt_path)
-        # self.model.load_state_dict(checkpoint['model_state_dict'])
+        print(
+            "File {} exists {}".format(
+                self.model_file, str(path.exists(self.model_file))
+            )
+        )
+        # print(
+        #     "File {} exists {}".format(
+        #         self.config_file, str(path.exists(self.config_file))
+        #     )
+        # )
 
-        if (self.device == "cpu"):
-            print('CPU')
-            self.model.load_state_dict(torch.load(
-                model_pt_path, map_location="cpu"), strict=False)
-        else:
-            print('GPU')
-            checkpoint = torch.load(model_pt_path)
-            # self.model.load_state_dict(checkpoint['model_state_dict'])
+        self._gpu_id = context.system_properties["gpu_id"]
+
+        print("_gpu_id == ", self._gpu_id)
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        try:
+            model_pt_path = self.model_file
+            self.model = bn_inception(
+                embedding_size=512,
+                pretrained=True,
+                is_norm=1,
+                bn_freeze=1,
+                local_weight_path=self.model_file,
+            )
+
             self.model.load_state_dict(
-                checkpoint['model_state_dict'], strict=False)
+                torch.load(model_pt_path, map_location=self.device), strict=False
+            )
 
-        logger.debug(
-            'Model file {0} loaded successfully'.format(model_pt_path))
+            print("Model file {0} loaded successfully".format(model_pt_path))
+
+            print("model built on initialize")
+        except AssertionError as error:
+            # Output expected AssertionErrors.
+            print(error)
+        except:  # catch *all* exceptions
+            e = sys.exc_info()[0]
+            print("Error: {}".format(e))
+
+        self._context = context
+        # uncomment for torchserve
+        self._batch_size = context.system_properties["batch_size"]
         self.initialized = True
+        print("initialized")
 
-    def preprocess(self, payloads):
+    def preprocess(self, batch):
+        """
+        Transform raw input into model input data.
+        :param batch: list of raw requests, should match batch size
+        :return: list of preprocessed model input data
+        """
+        # assert self._batch_size == len(batch), "Invalid input batch size: {}".format(len(batch))
+
+        # Take the input data and pre-process it make it inference ready
+        print("pre-processing started for a batch of {}".format(len(batch)))
+        print("_batch_size == ", self._batch_size)
+
+        payloads = []
+
+        # batch is a list of requests
+        for request in batch:
+            instance_payloads = parse_request(request)
+            payloads += instance_payloads
+
+        print("pre-processing finished for a batch of {}".format(len(batch)))
+
+        return payloads
+
+    def inference(self, model_input):
+        """
+        Internal inference methods
+        :param model_input: transformed model input data
+        :return: list of inference output in NDArray
+        """
+        # [{'image_cropped': <PIL.Image.Image image mode=RGB size=98x358 at 0x134811450>, 'bbox': [94.83322143554688, 17.79736328125, 193.27203369140625, 376.315185546875]}]
+        # Do some inference call to engine here and return output
+        print("inference started for a batch of {}".format(len(model_input)))
+
         local_payloads = []
-        for payload in payloads:
-            if 'error' in payload:
-                local_payloads.append(payload)
-            else:
-                local_payload = payload.copy()
-                # check if bbox is present and crop the image
-                if 'bbox' in local_payload.keys():
-                    input_img = payload['pil_image_cropped']
-                # otherwise pass the same image
-                else:
-                    input_img = payload['pil_image']
+        outputs = []
 
-                # print(input_img.size, type(input_img), len(input_img.mode), input_img.mode)
+        for payload in model_input:
+            
+            # generate bbox for image
+            if "error" not in payload:
+                input_img = payload['image_cropped']
+                pil_processed_image =  self.transform(input_img).unsqueeze(0)
+                local_payloads.append(pil_processed_image)
 
-                local_payload.update({'pil_processed_image': (
-                    self.transform(input_img).unsqueeze(0))})
-                local_payloads.append(local_payload)
-        return local_payloads
-
-    def inference(self, payloads):
-        local_payloads = []
-
-        for payload in payloads:
-            if 'pil_processed_image' in payload:
-                local_payloads.append(payload['pil_processed_image'])
         if len(local_payloads):
             outputs = self.model(torch.cat(local_payloads))
             outputs = list(torch.split(outputs, 1))
-        else:
-            outputs = []
+
         output_payloads = []
-        for payload in payloads:
-            if 'error' in payload:
+        for payload in model_input:
+            if "error" in payload:
                 output_payloads.append(payload)
             else:
-                output_payloads.append(
-                    {'instances': outputs.pop(0)})
-        return output_payloads
+                output_payloads.append({"instances": outputs.pop(0)})
 
+        print("inference finished for a batch of {}".format(len(model_input)))
+
+        return output_payloads
+    
+    def postprocess(self, inference_output):
+
+        """
+        Return predict result in batch.
+        :param inference_output: list of inference output
+        :return: list of predict results
+        """
+        start_time = time.time()
+        
+        print("post-processing started at {} for a batch of {}".format(start_time, len(inference_output)))
+        
+        final_data = []
+        for payload in inference_output:
+            if "error" in payload:
+                final_data.append(payload)
+            else:
+                instances = payload["instances"]
+                result = instances.detach().cpu().numpy().squeeze()
+                data = {"embedding": {"data": result.tolist(), "version": 5}}
+                final_data.append(data)
+        elapsed_time = time.time() - start_time
+            
+        print("post-processing finished for a batch of {} in {}".format(len(inference_output), elapsed_time))
+
+        return final_data
+    
+
+    
     def postprocess(self, payloads):
         final_data = []
         for payload in payloads:
-            if 'error' in payload:
+            if "error" in payload:
                 final_data.append(payload)
             else:
-                instances = payload['instances']
+                instances = payload["instances"]
                 result = instances.detach().cpu().numpy().squeeze()
-                data = {"embedding": {"data": result.tolist(
-                ), "version": 5}}
+                data = {"embedding": {"data": result.tolist(), "version": 5}}
                 final_data.append(data)
         return final_data
 
+    def handle(self, data, context):
+        """
+        Call preprocess, inference and post-process functions
+        :param data: input data
+        :param context: mms context
+        """
+        print("handling started")
+        print(data, "=====> data")
+        # print(context.system_properties, " ====> context")
+        # context.system_properties = {'model_dir': '/home/model-server/tmp/models/9d58942b2174498eae4e1f7e7a1e56fb', 'gpu_id': None, 'batch_size': 1, 'server_name': 'MMS', 'server_version': '0.8.1', 'limit_max_image_pixels': True}
 
-_service = ProxyAnchor()
+        # print("handle data ----> ")
+        # print("handle data ----> ", data) asia-south1-docker.pkg.dev/vera-dev-392610/detectron-containers
+        # process the data through our inference pipeline
+        model_input = self.preprocess(data)
+
+        print("model_input ----> ")
+        print("model_input ----> ", model_input)
+        model_out = self.inference(model_input)
+
+        # print("output data ----> ")
+        # print("output data ----> ", model_out)
+        output = self.postprocess(model_out)
+
+        # output = []
+
+        # print("handling finished")
+        print("handling finished", output)
+
+        return output
+
+
+_service = ModelHandler()
 
 
 def handle(data, context):
-    """
-        a. TODO comment should be added by Gaurav
-        a. Following the same code from the torchserve repo written by Gaurav
-    """
     if not _service.initialized:
-        properties = context.system_properties
-        gpu_id = properties.get("gpu_id")
-        model_dir = properties.get("model_dir")
-        _service.initialize(model_dir=model_dir, gpu_id=gpu_id)
-
-    print("data->",data)
+        print("service not initialized")
+        _service.initialize(context)
 
     if data is None:
-        return [{"error": "No input given."}]
-    else:
-        payloads = parse_request(data)
-        payloads = _service.preprocess(payloads)
-        payloads = _service.inference(payloads)
-        payloads = _service.postprocess(payloads)
-        return payloads
+        return None
+
+    # print("data ----> ", data)
+    return _service.handle(data, context)
 
 
-# if __name__ == "__main__":
-#     """
-#         1. Main function 
-#         2. Assembles the entire code to get embedding for one image
-#     """
-#     gc.set_threshold(0)
-#     if not _service.initialized:
-#         # _service.initialize(
-#         #     model_dir='/home/guest/Documents/piktor-vera-pipeline-torchserve-5d1b7e93cf9c/data/proxy_anchor', gpu_id=0)
-#         _service.initialize(
-#             model_dir='/Users/apple/Desktop/Vera_project_files/torchserve-poc/train-hypvit/', gpu_id=0)
+# #### THIS IS FOR RUNNING LOCALLY
+if __name__ == "__main__":
+    context = {"system_properties": {"batch_size": 1}}
 
-#     # data = [{
-#     #     "url": "https://i.pinimg.com/736x/e5/15/ae/e515ae565b823c87b684b6904d9478a3.jpg".encode(),
-#     #     'bbox': '[0.1731438191731771, 0.6382481384277344, 0.7134397379557291, 0.9916904703776042]'
-#     # }]
-#     # modifed[Ammu]
-#     file_path = "proxy_anchor_input_data.json"
-#     with open(file_path, "r") as json_file:
-#         data = json.load(json_file)
-#     # data = [{
-#     #     "image": '/Users/apple/Documents/Vera/vera-Dataset-for-Training/Curtain/0a1e229710d82db4.jpg',
-#     #     "url": "https://i.pinimg.com/736x/e5/15/ae/e515ae565b823c87b684b6904d9478a3.jpg".encode(),
-#     #     'bbox': '[0.1731438191731771, 0.6382481384277344, 0.7134397379557291, 0.9916904703776042]'
-#     # }]
-#     # test payload
-#     # data = [{
-#     #     'image' : '/media/pintu/BACKUP/Trinanjan/current_project/virtual_try_on/Graphonomy/img/messi.jpg',
-#     #     'bbox':'[.1,.2,.7,.8]'
-#     # }]
-#     # data=[{
-#     # 'url':"https://www.thetrendspotter.net/wp-content/uploads/2019/09/London-Fashion-Week-SS-2020-Street-Style-34.jpg".encode(),
-#     # 'bbox':[.1,.2,.7,.8]
-#     #     }]
+    if not _service.initialized:
+        _service.initialize(context)
 
-#     start_time = time.time()
-#     data = data[:500]
-#     batch_size = 500
-#     final_emb_results = []
-#     # modifed[Ammu]
-#     for i in tqdm(range(0, len(data), batch_size)):
-#     # find end of batch
-#         i_end = min(i+batch_size, len(data))
-#         data_batch = data[i:i_end]
-#         payload = parse_request(data_batch)
-#         payload_processed = _service.preprocess(payload)
-#         emb = _service.inference(payload_processed)
-#         emb = _service.postprocess(emb)
-#         final_emb_results = final_emb_results + emb
-#     end_time = time.time()
-#     print('Duration: ', end_time-start_time)
-#     # This print is for testing purpose
-#     print(emb)
-#     # modifed[Ammu]
-#     file_path = "embedding_data_output.json"
-#     # Writing data to the JSON file
-#     with open(file_path, "w") as json_file:
-#         json.dump(final_emb_results, json_file, indent=4)
+    data = {
+        "instances": [
+            {
+                "image_url": "https://m.media-amazon.com/images/I/81ZQXAE1OVL._AC_UL400_.jpg",
+                "bbox": "[94.83322143554688,17.79736328125,193.27203369140625,376.315185546875]",
+            }
+        ]
+    }
 
-# if __name__ == "__main__":
-#     data = [
-#         {"body":{
-#         "url": "https://xcdn.next.co.uk/common/items/default/default/publications/g22/shotzoom/56/d83-513s.jpg?im=Resize,width=364".encode(),
-#         'bbox': '[0.18610319200452868, 0.7318033630594666, 0.7131961361392514, 0.9981475941864125]'
-#     }}
-#     ]
+    data = [{"body": data}]
 
-#     if not _service.initialized:
-#         _service.initialize(
-#             model_dir='/home/desktop/Documents/torchserve-poc/train-hypvit', gpu_id=0)
-    
-#     output= handle(data,context={})
-
-#     print(output)
+    output = _service.handle(data, context)
+    print("output------>", output)

@@ -16,14 +16,29 @@ https://github.com/dichotomies/proxy-nca.
 
 
 class bn_inception(nn.Module):
-    def __init__(self, embedding_size, pretrained=True, is_norm=True, bn_freeze=True):
+    def __init__(self, embedding_size, pretrained=True, is_norm=True, bn_freeze=True,local_weight_path=None):
         ssl._create_default_https_context = ssl._create_unverified_context
         super(bn_inception, self).__init__()
         self.model = BNInception(embedding_size, pretrained, is_norm)
         if pretrained:
             #             weight = model_zoo.load_url('http://data.lip6.fr/cadene/pretrainedmodels/bn_inception-239d2248.pth')
-            weight = model_zoo.load_url(
-                'http://data.lip6.fr/cadene/pretrainedmodels/bn_inception-52deb4733.pth')
+           
+            online_weight_url = (
+                "http://data.lip6.fr/cadene/pretrainedmodels/bn_inception-52deb4733.pth"
+            )
+
+            if local_weight_path is not None:
+                try:
+                    # Try to load weights from local path
+                    weight = torch.load(local_weight_path)
+                except FileNotFoundError:
+                    print(
+                        "Local weight file not found. Loading weights from the online URL."
+                    )
+                    weight = model_zoo.load_url(online_weight_url)
+            else:
+                weight = model_zoo.load_url(online_weight_url)
+
             weight = {k: v.squeeze(0) if v.size(
                 0) == 1 else v for k, v in weight.items()}
             self.model.load_state_dict(weight)
