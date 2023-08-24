@@ -149,7 +149,9 @@ class ModelHandler(object):
 
         print("_gpu_id == ", self._gpu_id)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.device = torch.device("cpu")
 
         try:
             model_pt_path = self.model_file
@@ -324,26 +326,30 @@ def handle(data, context):
         return None
 
     # print("data ----> ", data)
-    return _service.handle(data, context)
+    output =  _service.handle(data, context)
+
+    return [{
+        "predictions": output,
+    }]
 
 
 # #### THIS IS FOR RUNNING LOCALLY
-if __name__ == "__main__":
-    context = {"system_properties": {"batch_size": 1}}
+# if __name__ == "__main__":
+#     context = {"system_properties": {"batch_size": 1}}
 
-    if not _service.initialized:
-        _service.initialize(context)
+#     if not _service.initialized:
+#         _service.initialize(context)
 
-    data = {
-        "instances": [
-            {
-                "image_url": "https://m.media-amazon.com/images/I/81ZQXAE1OVL._AC_UL400_.jpg",
-                "bbox": "[94.83322143554688,17.79736328125,193.27203369140625,376.315185546875]",
-            }
-        ]
-    }
+#     data = {
+#         "instances": [
+#             {
+#                 "image_url": "https://m.media-amazon.com/images/I/81ZQXAE1OVL._AC_UL400_.jpg",
+#                 "bbox": "[94.83322143554688,17.79736328125,193.27203369140625,376.315185546875]",
+#             }
+#         ]
+#     }
 
-    data = [{"body": data}]
+#     data = [{"body": data}]
 
-    output = _service.handle(data, context)
-    print("output------>", output)
+#     output = _service.handle(data, context)
+#     print("output------>", output)
