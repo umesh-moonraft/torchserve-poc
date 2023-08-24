@@ -1,0 +1,1 @@
+torchserve --start --model-store model-store/ --models detectron=detectron.mar proxy-anchor=proxy-anchor.mar --ncs

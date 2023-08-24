@@ -1,0 +1,3 @@
+torch-model-archiver --model-name proxy-anchor --version 1.0 --serialized-file ./proxy-anchor/output/bn_inception-52deb4733.pth --handler ./proxy-anchor/handler.py --extra-files ./proxy-anchor/utils.py,./proxy-anchor/bn_inception.py --export-path model-store/ --config-file ./proxy-anchor/proxy-anchor-config.yaml --force
+
+torch-model-archiver --model-name detectron --version 1.0 --serialized-file ./detectron/output/output_2/model_final.pth --handler ./detectron/handler.py --extra-files ./detectron/index_to_name.json --export-path model-store/ --config-file ./detectron/detectron-config.yaml --force

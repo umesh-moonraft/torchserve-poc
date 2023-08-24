@@ -248,7 +248,7 @@ class ModelHandler(object):
             else:
                 instances = payload["instances"]
                 result = instances.detach().cpu().numpy().squeeze()
-                data = {"embedding": {"data": result.tolist(), "version": 5}}
+                data = {"embedding": result.tolist(), "version": 1}
                 final_data.append(data)
         elapsed_time = time.time() - start_time
             
