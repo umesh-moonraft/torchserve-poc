@@ -65,16 +65,11 @@ def parse_request(request):
 
 def validate_bbox(bbox, image):
     # check if the image bbox values are normalized
-    bbox = eval(bbox)
+    # bbox = eval(bbox)
+
     # length bbox check
     bbox_sanity_check = True if len(bbox) == 4 else False
-
-    print(image, image.size)
-
     img_width, img_height = image.size
-
-    print(img_width, img_height)
-
     payload = {}
 
     if bbox_sanity_check:
@@ -139,15 +134,8 @@ class ModelHandler(object):
                 self.model_file, str(path.exists(self.model_file))
             )
         )
-        # print(
-        #     "File {} exists {}".format(
-        #         self.config_file, str(path.exists(self.config_file))
-        #     )
-        # )
 
         self._gpu_id = context.system_properties["gpu_id"]
-
-        print("_gpu_id == ", self._gpu_id)
 
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -298,8 +286,8 @@ class ModelHandler(object):
         # process the data through our inference pipeline
         model_input = self.preprocess(data)
 
-        print("model_input ----> ")
-        print("model_input ----> ", model_input)
+        # print("model_input ----> ")
+        # print("model_input ----> ", model_input)
         model_out = self.inference(model_input)
 
         # print("output data ----> ")
@@ -308,8 +296,8 @@ class ModelHandler(object):
 
         # output = []
 
-        # print("handling finished")
-        print("handling finished", output)
+        print("handling finished")
+        # print("handling finished", output)
 
         return output
 
@@ -333,7 +321,7 @@ def handle(data, context):
     }]
 
 
-# #### THIS IS FOR RUNNING LOCALLY
+#### THIS IS FOR RUNNING LOCALLY
 # if __name__ == "__main__":
 #     context = {"system_properties": {"batch_size": 1}}
 
@@ -344,7 +332,7 @@ def handle(data, context):
 #         "instances": [
 #             {
 #                 "image_url": "https://m.media-amazon.com/images/I/81ZQXAE1OVL._AC_UL400_.jpg",
-#                 "bbox": "[94.83322143554688,17.79736328125,193.27203369140625,376.315185546875]",
+#                 "bbox": [94.83322143554688,17.79736328125,193.27203369140625,376.315185546875],
 #             }
 #         ]
 #     }
