@@ -130,11 +130,17 @@ class ModelHandler(object):
                     payloads.append(result)
                     continue
 
+            
+
                 
                 response = requests.get(image_url)
                 response.raise_for_status()
 
+                print(response)
+
                 image_bytes = response.content
+
+
 
                 input = io.BytesIO(image_bytes)
                 img = cv2.imdecode(np.fromstring(input.read(), np.uint8), 1)
